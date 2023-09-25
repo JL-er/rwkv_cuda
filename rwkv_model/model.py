@@ -27,20 +27,6 @@ else:
 if os.environ.get('RWKV_CUDA_ON') == '1':
     import cuda_rwkv
     
-    # def numba1_wkv(B: int, T: int, C: int, w, u, k, v, aa, bb, pp, lens, numset):
-    #     assert B * C % min(C, 32) == 0
-    #     assert k.dtype == v.dtype == torch.float16 or k.dtype == v.dtype == torch.float32
-    #     assert w.dtype == u.dtype == aa.dtype == bb.dtype == pp.dtype == torch.float32
-    #     lenths = lens.to(w.device)
-    #     numset = numset.to(w.device)
-    #     w = w.contiguous()
-    #     u = u.contiguous()
-    #     k = k.contiguous()
-    #     v = v.contiguous()
-    #     y = torch.empty(T*C, device=w.device, memory_format=torch.contiguous_format, dtype=k.dtype)
-    #     y, aa, bb, pp = wkv(B, T, C, w, u, k, v, y, aa, bb, pp, lenths, numset)
-    #     return y, aa, bb, pp
-    
     @MyStatic
     def numba_wkv(B: int, T: int, C: int, w, u, k, v, aa, bb, pp, lens, numset):
         assert B * C % min(C, 32) == 0
@@ -54,7 +40,6 @@ if os.environ.get('RWKV_CUDA_ON') == '1':
         v = v.contiguous()
         y = torch.empty((T,C), device=w.device, memory_format=torch.contiguous_format, dtype=k.dtype)
         torch.ops.rwkv.cuda_wkv(B, C, w, u, k, v, y, aa, bb, pp, lens_gpu, numset_gpu)
-        #y = y.reshape(T,C)
         return y, aa, bb, pp
 
     @MyStatic
@@ -71,17 +56,6 @@ if os.environ.get('RWKV_CUDA_ON') == '1':
         torch.ops.rwkv.cuda_i8seq(B, N, M, x, w, mx, rx, my, ry, y)
         return y
 
-    # def numba_mm8_one(B: int, N: int, M: int, x, w, mx, rx, my, ry):
-    #     assert x.dtype == mx.dtype == rx.dtype == my.dtype == ry.dtype
-    #     assert x.dtype == torch.float32 or x.dtype == torch.float16
-    #     assert w.dtype == torch.uint8
-    #     assert x.shape == (B, N)
-    #     assert w.shape == (N, M)
-    #     assert rx.shape == mx.shape == (M,)
-    #     assert ry.shape == my.shape == (N, 1)
-    #     y = torch.empty((B, M), device=w.device, dtype=x.dtype)
-    #     y = mmi8_one(B, N, M, x, w, mx, rx, my, ry, y)
-    #     return y
 
 
 else:
@@ -415,13 +389,10 @@ class RWKV(MyModule):
             sx[culset[:-1], :] = sx_clone[1:, :]
         kx = xx * k_mix + sx * (1 - k_mix)
         rx = xx * r_mix + sx * (1 - r_mix)
-        #s = time.time()
         r = torch.sigmoid(self.mm8_seq(rx, rw, rmx, rrx, rmy, rry))
         vx = torch.square(torch.relu(self.mm8_seq(kx, kw, kmx, krx, kmy, kry)))
         out = r * (self.mm8_seq(vx, vw, vmx, vrx, vmy, vry))
-        # torch.cuda.synchronize()
-        # e = time.time()
-        # print('fnn_seq', e - s)
+        
         torch.cuda.synchronize()
         xxx = xx[culset - 1, :]
         return x + out, xxx
